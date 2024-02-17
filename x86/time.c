@@ -57,7 +57,7 @@ __nsec ukplat_monotonic_clock(void)
 {
 	// return tscclock_monotonic();
 	//return hyperv_tc64();
-	return hyperv_get_timecount();
+	return HYPERV_TIMER_NS_FACTOR * hyperv_get_timecount();
 }
 
 /* return wall time in nsecs */
@@ -67,7 +67,7 @@ __nsec ukplat_wall_clock(void)
 	//return hyperv_tc64();
 	unsigned long count = hyperv_get_timecount();
 	uk_pr_info("[ukplat_wall_clock] enter count: %lu\n", count);
-	return count;
+	return HYPERV_TIMER_NS_FACTOR * count;
 }
 
 /* NB: If this ever does more than an immediate return, it will need to be
