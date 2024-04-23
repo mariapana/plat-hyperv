@@ -1357,7 +1357,9 @@ int vmbus_chan_recv_raw(struct vmbus_channel *chan,
 
 	uk_pr_info("[vmbus_chan_recv_raw] begin buffer len: %u\n", *len);
 
+	mtx_lock(&chan->ch_subchan_lock);
 	error = vmbus_rxbr_peek(&chan->ch_rxbr, &pkt, sizeof(pkt));
+	mtx_unlock(&chan->ch_subchan_lock);
 	uk_pr_info("[vmbus_chan_recv_raw] After vmbus_rxbr_peek error: %d\n", error);
 	if (error)
 		return (error);
@@ -1385,7 +1387,9 @@ int vmbus_chan_recv_raw(struct vmbus_channel *chan,
 	}
 
 	/* Read data and skip packet header */
+	mtx_lock(&chan->ch_subchan_lock);
 	error = vmbus_rxbr_read(&chan->ch_rxbr, data, dlen, 0);
+	mtx_unlock(&chan->ch_subchan_lock);
 	if (error) {
 		uk_pr_info("[vmbus_chan_recv_raw] vmbus_rxbr_read error: %d\n", error);
 		return (error);

@@ -141,8 +141,10 @@ vmbus_rxbr_avail(const struct vmbus_rxbr *rbr)
 	rindex = rbr->rxbr_rindex;
 	windex = rbr->rxbr_windex;
 
+	mtx_lock_spin(&rbr->rxbr_lock);
 	sz = (rbr->rxbr_dsize -
 	    VMBUS_BR_WAVAIL(rindex, windex, rbr->rxbr_dsize));
+	mtx_unlock_spin(&rbr->rxbr_lock);
 
 	uk_pr_info("[vmbus_rxbr_avail] rbr->rxbr_dsize: %u, rindex: %u, windex: %u, sz: %u\n", rbr->rxbr_dsize, rindex, windex, sz);
 
@@ -151,8 +153,16 @@ vmbus_rxbr_avail(const struct vmbus_rxbr *rbr)
 
 uint32_t
 vmbus_rxbr_available(const struct vmbus_rxbr *rbr)
-{	
-	return (vmbus_rxbr_avail(rbr));
+{
+	uint32_t avail;
+
+	mtx_lock_spin(&rbr->rxbr_lock);
+	avail = vmbus_rxbr_avail(rbr);
+	mtx_unlock_spin(&rbr->rxbr_lock);
+
+	return avail;
+
+	// return (vmbus_rxbr_avail(rbr));
 }
 
 uint32_t
@@ -280,6 +290,7 @@ static __inline boolean_t
 vmbus_txbr_need_signal(const struct vmbus_txbr *tbr, uint32_t old_windex)
 {
 	mb();
+	
 	if (tbr->txbr_imask)
 		return (FALSE);
 
@@ -305,11 +316,13 @@ vmbus_txbr_avail(const struct vmbus_txbr *tbr)
 	rindex = tbr->txbr_rindex;
 	windex = tbr->txbr_windex;
 
+	mtx_lock_spin(&tbr->txbr_lock);
 	sz = VMBUS_BR_WAVAIL(rindex, windex, tbr->txbr_dsize);
+	mtx_unlock_spin(&tbr->txbr_lock);
 
 	uk_pr_info("[vmbus_txbr_avail] tbr->txbr_dsize: %u, rindex: %u, windex: %u, sz: %u\n", tbr->txbr_dsize, rindex, windex, sz);
 
-	return VMBUS_BR_WAVAIL(rindex, windex, tbr->txbr_dsize);
+	return sz;
 }
 
 static __inline uint32_t
@@ -359,7 +372,13 @@ vmbus_txbr_copyto_call(const struct vmbus_txbr *tbr, uint32_t windex,
 uint32_t
 vmbus_txbr_available(const struct vmbus_txbr *tbr)
 {
-	return (vmbus_txbr_avail(tbr));
+	uint32_t avail;
+
+	mtx_lock_spin(&tbr->txbr_lock);
+	avail = vmbus_txbr_avail(tbr);
+	mtx_unlock_spin(&tbr->txbr_lock);
+
+	return avail;
 }
 
 /*
@@ -434,10 +453,10 @@ vmbus_txbr_write_call(struct vmbus_txbr *tbr,
 	__compiler_membar();
 	tbr->txbr_windex = windex;
 
-	mtx_unlock_spin(&tbr->txbr_lock);
-
 	if (need_sig)
 		*need_sig = vmbus_txbr_need_signal(tbr, old_windex);
+
+	mtx_unlock_spin(&tbr->txbr_lock);
 
 	return (0);
 }
@@ -501,9 +520,9 @@ vmbus_txbr_write(struct vmbus_txbr *tbr, const struct iovec iov[], int iovlen,
 	__compiler_membar();
 	tbr->txbr_windex = windex;
 
-	mtx_unlock_spin(&tbr->txbr_lock);
-
 	*need_sig = vmbus_txbr_need_signal(tbr, old_windex);
+
+	mtx_unlock_spin(&tbr->txbr_lock);
 
 	return (0);
 }
@@ -595,9 +614,9 @@ vmbus_rxbr_peek_call(struct vmbus_rxbr *rbr, int dlen, uint32_t skip,
 	}
 
 	rindex = VMBUS_BR_IDXINC(rbr->rxbr_rindex, skip, br_dsize0);
-	mtx_unlock_spin(&rbr->rxbr_lock);
 
 	ret = vmbus_rxbr_copyfrom_call(rbr, rindex, dlen, cb, cbarg);
+	mtx_unlock_spin(&rbr->rxbr_lock);
 
 	return (ret);
 }
@@ -634,8 +653,6 @@ vmbus_rxbr_idxadv_peek(struct vmbus_rxbr *rbr, void *data, int dlen,
 
 	vmbus_rxbr_copyfrom(rbr, rbr->rxbr_rindex, data, dlen);
 
-	mtx_unlock_spin(&rbr->rxbr_lock);
-
 	if (need_sig) {
 		if (idx_adv > 0)
 			*need_sig =
@@ -644,6 +661,8 @@ vmbus_rxbr_idxadv_peek(struct vmbus_rxbr *rbr, void *data, int dlen,
 		else
 			*need_sig = false;
 	}
+
+	mtx_unlock_spin(&rbr->rxbr_lock);
 
 	return (0);
 }
@@ -676,12 +695,12 @@ vmbus_rxbr_idxadv(struct vmbus_rxbr *rbr, uint32_t idx_adv,
 	__compiler_membar();
 	rbr->rxbr_rindex = rindex;
 
-	mtx_unlock_spin(&rbr->rxbr_lock);
-
 	if (need_sig) {
 		*need_sig =
 		    vmbus_rxbr_need_signal(rbr, idx_adv + sizeof(uint64_t));
 	}
+
+	mtx_unlock_spin(&rbr->rxbr_lock);
 
 	return (0);
 }
